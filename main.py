@@ -1,47 +1,48 @@
-from groq import generate_response
-import re
 import streamlit as st
-def looks_incomplete(text: str) -> bool:
-    if not text or len(text.strip())<10:
-        return True
-    t=text.strip()
-    if text.endswith(("**","*","-",":",",","(","[","{")):
-        return True
-    if not re.search(r"[.!?]\s*$", t):
-        return True
-    return False
-def complete_answer(question:str, max_rounds:int=2)->str:
-    base_prompt=(
-        "Answer clearly in numbered points"
-        "Do not cut sentences, finish each point fullt\n\n"
-        f"Question:{question}"
-    )
-    answer=generate_response(base_prompt,temperature=0.3,max_tokens=1024)
-    rounds=0
-    while rounds<max_rounds and looks_incomplete(answer):
-        cont_prompt=(
-            "Continue exactly from where you stopped"
-            "Do not repeat earlier text"
-            "Finish the incomplete point and complete the answer\n\n"
-            f"Question: {question}\n\n"
-            f"Answer so far:\n{answer}\n\nContinue:"
-        )
-        more=generate_response(cont_prompt,temperature=0.3,max_tokens=1024)
-        if not more or more.strip() in answer:
-            break
-        answer=(answer.rstrip() + "\n" + more.lstrip()).strip()
-        rounds+=1
-    return answer
-def main():
-    st.title("AI Teaching Assistant")
-    st.write("Ask me anything, and ill provide a clear answer")
-    user_input=st.text_input("Enter your question:")
-    if user_input:
-        response=complete_answer(user_input)
-        st.write("**AIs answer:")
-        st.markdown(response)
+import requests
+import urllib.parse
+st.set_page_config(page_title="Safe AI Image Generator", page_icon=":art:", layout="wide")
+st.title("Safe AI Image Generator")
+st.write("Type a prompt below to create a fun safe AI picture")
+BLOCKED_WORDS = [ "gun", "weapon", "blood", "dead", "body", "corpse", "kill", "murder", "nude", "naked", "nsfw", "violence", "knife", "gore", "explode", "death" ]
+def check_safety(user_prompt):
+    prompt_lower=user_prompt.lower()
+    for words in BLOCKED_WORDS:
+        if words in prompt_lower:
+            return False, f"The prompt is not allowed for safety measures, Blocked words: {words}"
+    return True,"Safe,Generated"
+user_prompt=st.text_input(
+    "Enter your image prompt:",
+    placeholder="e.g., A cat wearing an astronaut suit on mars"
+)
+col1, col2 = st.columns(2) 
+with col1: 
+    width = st.slider("Image Width", min_value=256, max_value=768, value=512, step=128) 
+with col2: 
+    height = st.slider("Image Height", min_value=256, max_value=768, value=512, step=128)
+if st.button("Generate Image"):
+    if not user_prompt.strip():
+        st.warning("Please type a description first")
     else:
-        st.info("Please enter a question to get started")
-if __name__=="__main__":
-    main()
-
+        is_safe, message = check_safety(user_prompt)
+        if not is_safe:
+            st.error(f"Blocked Content: {message}")
+            st.info("Please change your prompt to something suitable")
+        else:
+            with st.spinner("Creating your image........ Please wait........"):
+                safe_prompt = f"{user_prompt}, high quality, kid friendly, digital art, vibrant"
+                encoded_prompt = urllib.parse.quote(safe_prompt) 
+                image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true"
+                
+                try:
+                    # Add User-Agent header so the server accepts the Python request
+                    headers = {"User-Agent": "Mozilla/5.0"}
+                    response = requests.get(image_url, headers=headers)
+                    
+                    if response.status_code == 200:
+                        # Pass response.content (the raw image bytes) instead of the url string
+                        st.image(response.content, caption="Generated Image", use_container_width=True)
+                    else:
+                        st.error(f"Failed to generate image (Status Code: {response.status_code}). Please try again.")
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
